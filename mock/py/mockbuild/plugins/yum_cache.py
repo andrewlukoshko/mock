@@ -26,11 +26,12 @@ def init(plugins, conf, buildroot):
 
 
 class CacheDir:
-    def __init__(self, buildroot, pkg_manager):
+    def __init__(self, buildroot, pkg_manager, cache_dir=None):
         self.buildroot = buildroot
         self.cache_path = os.path.join('/var/cache', pkg_manager)
-        self.host_cache_path = os.path.join(self.buildroot.cachedir,
-                                            pkg_manager + '_cache')
+        self.host_cache_path = os.path.join(
+            cache_dir if cache_dir else self.buildroot.cachedir,
+            pkg_manager + '_cache')
         self.mount_path = self.buildroot.make_chroot_path(self.cache_path)
         self.buildroot.mounts.add(BindMountPoint(
             srcpath=self.host_cache_path,
@@ -56,9 +57,21 @@ class YumCache(object):
         self.config = buildroot.config
         self.state = buildroot.state
         self.yum_cache_opts = conf
+
+        cache_key = conf.get('cache_key')
+        if cache_key:
+            cache_topdir = self.config['cache_topdir']
+            cache_dir = os.path.join(cache_topdir, 'yum_cache', cache_key)
+            mockbuild.file_util.mkdirIfAbsent(cache_dir)
+            lock_dir = cache_dir
+            getLog().info("enabled package manager cache (shared, key=%s)", cache_key)
+        else:
+            cache_dir = None
+            lock_dir = buildroot.cachedir
+
         self.cache_dirs = [
-            CacheDir(buildroot, 'yum'),
-            CacheDir(buildroot, 'dnf'),
+            CacheDir(buildroot, 'yum', cache_dir),
+            CacheDir(buildroot, 'dnf', cache_dir),
         ]
         self.yumSharedCachePath = self.cache_dirs[0].host_cache_path
         self.online = self.config['online']
@@ -66,7 +79,7 @@ class YumCache(object):
         plugins.add_hook("postyum", self._yumCachePostYumHook)
         plugins.add_hook("preinit", self._yumCachePreInitHook)
 
-        self.yumCacheLock = open(os.path.join(buildroot.cachedir, "yumcache.lock"), "a+")
+        self.yumCacheLock = open(os.path.join(lock_dir, "yumcache.lock"), "a+")
 
 
     # =============
